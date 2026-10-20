@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smart Irrigation Node simulator</title>
+<meta name="description" content="Browser simulator of the Smart Irrigation Node ESP32 firmware: move the soil moisture, empty the tank or unplug the sensor and watch the pump logic react.">
+<style>
+  :root {
+    --bg: #f6f7f5;
+    --card: #ffffff;
+    --text: #1d2420;
+    --muted: #5b655f;
+    --border: #d9ded9;
+    --accent: #0f7a4a;
+    --accent-soft: #dff3e8;
+    --line: #1f5fbf;
+    --grid: #e3e7e3;
+    --pump: rgba(15, 122, 74, 0.18);
+    --warn: #a8480a;
+    --warn-soft: #fbe9dc;
+    --bad: #b3261e;
+    --bad-soft: #fbe3e1;
+    --idle-soft: #eceeed;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121714;
+      --card: #1a211d;
+      --text: #e8ede9;
+      --muted: #9aa69f;
+      --border: #2c362f;
+      --accent: #4fd08e;
+      --accent-soft: #16382a;
+      --line: #6ea8ff;
+      --grid: #2a332d;
+      --pump: rgba(79, 208, 142, 0.22);
+      --warn: #f0a366;
+      --warn-soft: #3b2616;
+      --bad: #ff8a80;
+      --bad-soft: #3d1c1a;
+      --idle-soft: #252d28;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    line-height: 1.5;
+  }
+  a { color: var(--line); }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 24px 16px 48px; }
+  header h1 { font-size: 1.6rem; margin: 0 0 4px; }
+  header p { margin: 0 0 8px; color: var(--muted); max-width: 70ch; }
+  .notice {
+    border: 1px solid var(--border);
+    background: var(--card);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 0.92rem;
+    color: var(--muted);
+    margin: 12px 0 20px;
+  }
+  .grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .card h2 { font-size: 1rem; margin: 0 0 12px; }
+  .stack { display: grid; gap: 16px; }
+
+  .status-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-weight: 700; font-size: 1.05rem;
+    padding: 6px 14px; border-radius: 999px;
+    background: var(--idle-soft);
+  }
+  .badge[data-state="watering"] { background: var(--accent-soft); color: var(--accent); }
+  .badge[data-state="resting"] { background: var(--warn-soft); color: var(--warn); }
+  .badge[data-state="tank_empty"], .badge[data-state="sensor_fault"] { background: var(--bad-soft); color: var(--bad); }
+  .led { width: 12px; height: 12px; border-radius: 50%; background: var(--muted); opacity: .45; }
+  .led.on { background: var(--accent); opacity: 1; box-shadow: 0 0 0 4px var(--accent-soft); }
+  .explain { margin: 10px 0 0; color: var(--muted); font-size: 0.93rem; min-height: 2.9em; }
+  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+  @media (max-width: 520px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .stat { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
+  .stat .k { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .stat .v { font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  canvas { width: 100%; height: 240px; display: block; }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 0.82rem; color: var(--muted); margin-top: 8px; }
+  .legend span::before { content: ""; display: inline-block; width: 18px; height: 3px; margin-right: 6px; vertical-align: middle; background: var(--line); border-radius: 2px; }
+  .legend .l-pump::before { height: 10px; background: var(--pump); border: 1px solid var(--accent); }
+  .legend .l-thr::before { background: none; border-top: 2px dashed var(--muted); height: 0; }
+
+  .ctl { margin-bottom: 14px; }
+  .ctl label, .ctl .lab { display: flex; justify-content: space-between; font-size: 0.92rem; font-weight: 600; margin-bottom: 4px; }
+  .ctl output { font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 600; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .check { display: flex; align-items: center; gap: 10px; padding: 8px 0; font-size: 0.95rem; }
+  .check input { width: 18px; height: 18px; accent-color: var(--accent); }
+  .btns { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
+  button, select {
+    font: inherit; color: var(--text); background: var(--card);
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid var(--line); outline-offset: 2px; }
+  .msg { min-height: 1.4em; font-size: 0.85rem; color: var(--bad); margin: 2px 0 0; }
+  .hint { font-size: 0.82rem; color: var(--muted); margin: 4px 0 0; }
+
+  ol.log { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow: auto; font-size: 0.88rem; }
+  ol.log li { padding: 5px 0; border-bottom: 1px solid var(--border); display: flex; gap: 10px; }
+  ol.log li:last-child { border-bottom: 0; }
+  ol.log time { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+  .empty { color: var(--muted); font-size: 0.88rem; }
+
+  footer { margin-top: 22px; font-size: 0.9rem; color: var(--muted); }
+  footer ul { margin: 6px 0 0; padding-left: 20px; }
+  footer li { margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Smart Irrigation Node simulator</h1>
+    <p>The control logic of an ESP32 firmware that waters a plant from a soil-moisture sensor. Dry out the soil, empty the tank or unplug the sensor and watch what the pump does. Source and firmware: <a href="https://github.com/Anubhavkumarkanth/smart-irrigation-node">github.com/Anubhavkumarkanth/smart-irrigation-node</a>.</p>
+    <div class="notice"><strong>This is a simulation, not a recording from hardware.</strong> The soil and sensor are modelled here; the start/stop, run-time, rest-time, tank-empty and sensor-fault logic is the firmware's, ported to JavaScript.</div>
+  </header>
+
+  <main class="grid">
+    <div class="stack">
+      <section class="card" aria-labelledby="dev-h">
+        <h2 id="dev-h">Device</h2>
+        <div class="status-row">
+          <div class="badge" id="badge" data-state="idle" role="status" aria-live="polite"><span id="badgeText">Idle</span></div>
+          <div class="badge" style="font-size:.95rem"><span class="led" id="led" aria-hidden="true"></span><span id="pumpText">Pump off</span></div>
+        </div>
+        <p class="explain" id="explain"></p>
+        <div class="stats">
+          <div class="stat"><div class="k">Moisture</div><div class="v" id="vMoist">--</div></div>
+          <div class="stat"><div class="k">Sensor</div><div class="v" id="vMv">--</div></div>
+          <div class="stat"><div class="k">Pump runs</div><div class="v" id="vRuns">0</div></div>
+          <div class="stat"><div class="k">Sim time</div><div class="v" id="vClock">00:00</div></div>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="chart-h">
+        <h2 id="chart-h">Moisture over the last 5 simulated minutes</h2>
+        <canvas id="chart" role="img" aria-label="Line chart of measured soil moisture with pump-on periods shaded and the start and stop thresholds dashed"></canvas>
+        <div class="legend"><span>Measured moisture</span><span class="l-pump">Pump on</span><span class="l-thr">Start and stop levels</span></div>
+      </section>
+
+      <section class="card" aria-labelledby="log-h">
+        <h2 id="log-h">What the controller did</h2>
+        <ol class="log" id="log"></ol>
+        <p class="empty" id="logEmpty">Nothing yet.</p>
+      </section>
+    </div>
+
+    <aside class="stack">
+      <section class="card" aria-labelledby="ctl-h">
+        <h2 id="ctl-h">Try it</h2>
+
+        <div class="ctl">
+          <label for="soil">Soil moisture <output id="soilOut" for="soil">30%</output></label>
+          <input type="range" id="soil" min="0" max="100" step="1" value="30">
+          <p class="hint">The soil dries by itself and gets wetter while the pump runs. Drag to change it.</p>
+        </div>
+
+        <div class="check"><input type="checkbox" id="tank" checked><label for="tank">Tank has water (float switch closed)</label></div>
+        <div class="check"><input type="checkbox" id="sensor" checked><label for="sensor">Soil sensor connected</label></div>
+
+        <div class="ctl" style="margin-top:10px">
+          <label for="startBelow">Start watering below <output id="startOut" for="startBelow">35%</output></label>
+          <input type="range" id="startBelow" min="0" max="100" step="1" value="35">
+        </div>
+        <div class="ctl">
+          <label for="stopAbove">Stop at <output id="stopOut" for="stopAbove">55%</output></label>
+          <input type="range" id="stopAbove" min="0" max="100" step="1" value="55">
+          <p class="msg" id="msg" role="status" aria-live="polite"></p>
+          <p class="hint">These two sliders are the MQTT <code>cmd/start_below</code> and <code>cmd/stop_above</code> commands. Like the firmware, they reject a start level that is not below the stop level.</p>
+        </div>
+
+        <div class="btns">
+          <label for="speed" style="font-weight:600;font-size:.92rem">Speed</label>
+          <select id="speed">
+            <option value="1">1x</option>
+            <option value="5" selected>5x</option>
+            <option value="20">20x</option>
+            <option value="60">60x</option>
+          </select>
+          <button type="button" id="pause">Pause</button>
+          <button type="button" id="reset">Reset</button>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <footer>
+    <strong>How it is modelled</strong>
+    <ul>
+      <li>Pump on: soil gains 1.5 percentage points per second. Pump off: soil loses 0.3 per second. These are made-up numbers so cycles are quick to watch.</li>
+      <li>The sensor reads 2800 mV in dry soil and 1200 mV in wet soil (placeholder calibration), plus a little noise. The reading is smoothed and checked before use, as in the firmware.</li>
+      <li>Fixed firmware settings: the sensor is read every 0.5 s, a single run is capped at 20 s, and the pump rests for 60 s after each run.</li>
+      <li>The JavaScript controller was checked against the C++ one on 30,000 random steps (including <code>millis()</code> wrap-around): same state, pump output and run count every step. The C++ version has 52 unit tests in the repository.</li>
+    </ul>
+  </footer>
+</div>
+<script src="controller.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
