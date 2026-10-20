@@ -2,6 +2,10 @@
 
 ESP32 firmware that waters a plant when the soil gets dry and reports to an MQTT broker. A capacitive soil-moisture sensor goes on an ADC pin, a relay switches the pump, and a float switch stops the pump if the water tank runs empty.
 
+**Live simulator:** https://anubhavkumarkanth.github.io/smart-irrigation-node/
+
+It runs in the browser: drag the soil moisture, empty the tank or unplug the sensor and watch what the pump does. It is a simulation. The soil and sensor are modelled, and the control logic is the firmware's, ported to JavaScript (`docs/controller.js`).
+
 ## How it works
 
 - Reads the soil sensor (16 samples averaged, then lightly smoothed) and converts the voltage to a 0-100% moisture value using a two-point dry/wet calibration.
@@ -56,6 +60,8 @@ make test
 ```
 
 That builds with `-Werror` and the address and undefined-behaviour sanitizers and runs 52 checks: calibration, hysteresis, max run time, rest time, empty tank, sensor faults, `millis()` wrap-around and command parsing.
+
+The JavaScript port used by the simulator was compared with the C++ controller on 30,000 random inputs (including `millis()` wrap-around), with the same state, pump output and run count at every step.
 
 ## Status
 
